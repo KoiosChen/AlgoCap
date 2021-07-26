@@ -1,0 +1,39 @@
+store_path: "./tcpdump/"
+reserve: 60
+cpu: 0
+mergecap: 1
+log_path: "./tcpdump/"
+remote_dir: "/data/sync"
+rotate_percent: 90
+tcpdump:
+  - interface: p1p1
+    params: "-G 3600 -B 102400 -Z root --direction=in --time-stamp-type=adapter --time-stamp-precision=nano"
+    schedules:
+      - start: "0 6 * * 1-5"
+        end: "0 15 * * 1-5"
+        trigger: "cron"
+      - start: "0 21 * * 1-5"
+        end: "0 2 * * 2-6"
+        trigger: "cron"
+  - interface: p1p2
+    params: "-G 3600 -B 102400 -Z root --direction=in --time-stamp-type=adapter --time-stamp-precision=nano"
+    schedules:
+      - start: "0 6 * * 1-5"
+        end: "0 15 * * 1-5"
+        trigger: "cron"
+      - start: "0 21 * * 1-5"
+        end: "0 2 * * 2-6"
+        trigger: "cron"
+monitor:
+  - item: time
+    schedules:
+      - wait: "* 1 * * *"
+        trigger: "interval"
+  - item: rorate
+    schedules:
+      - wait: "* 1 * * *"
+        trigger: "interval"
+  - item: merge
+    schedules:
+      - wait: "30 * * * *"
+        trigger: "interval"
