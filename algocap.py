@@ -166,6 +166,24 @@ def rotate(dir_path, reserve_days, percent, remote_path=None):
                 os.remove(f)
 
 
+def packets_validation(source_list, target_file):
+    try:
+        sum_source_packets = 0
+        for sf in source_list:
+            sum_source_packets += eval(
+                os.popen('/usr/sbin/capinfos -c -M {} | grep Number'.format(sf)).read().split()[-1])
+
+        target_packets = eval(
+            os.popen('/usr/sbin/capinfos -c -M {} | grep Number'.format(target_file)).read().split()[-1])
+
+        if sum_source_packets == target_packets:
+            return True
+        else:
+            return False
+    except Exception as e:
+        return False
+
+
 def merge_files(dir_path, ifs, date_format, precision='hour'):
     merge_list = dict()
     for root, dirs, files in os.walk(dir_path):
@@ -194,12 +212,15 @@ def merge_files(dir_path, ifs, date_format, precision='hour'):
     for time, f in merge_list.items():
         if len(f) > 1:
             files_str = ' '.join(f)
-            target_files = os.path.join(dir_path, 'merged', 'wirecap_{}.pcap'.format(time))
+            target_file = os.path.join(dir_path, 'merged', 'wirecap_{}.pcap'.format(time))
             used_dir = os.path.join(dir_path, 'used')
-            merge_result = os.popen('mergecap -a {} -w {}'.format(files_str, target_files))
+            merge_result = os.popen('mergecap -a {} -w {}'.format(files_str, target_file))
             logger.info("merge result: {}".format(merge_result))
-            for used_file in f:
-                os.system('mv {} {}'.format(used_file, used_dir))
+            if packets_validation(f, target_file):
+                for used_file in f:
+                    os.system('mv {} {}'.format(used_file, used_dir))
+            else:
+                logger.error('Source packets is not equal to merged pcap file')
     return None
 
 
