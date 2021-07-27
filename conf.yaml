@@ -5,15 +5,17 @@ mergecap: 1
 log_path: "./tcpdump/"
 remote_dir: "/data/sync"
 rotate_percent: 90
+date_format: "%Y%m%d-%H%M%S"
+precision: "minute"
 tcpdump:
   - interface: p1p1
     params: "-G 3600 -B 102400 -Z root --direction=in --time-stamp-type=adapter --time-stamp-precision=nano"
     schedules:
-      - start: "0 6 * * 1-5"
-        end: "0 15 * * 1-5"
+      - start: "0 0 6 * * 1-5"
+        end: "0 0 15 * * 1-5"
         trigger: "cron"
-      - start: "0 21 * * 1-5"
-        end: "0 2 * * 2-6"
+      - start: "0 0 21 * * 1-5"
+        end: "0 0 2 * * 2-6"
         trigger: "cron"
   - interface: p1p2
     params: "-G 3600 -B 102400 -Z root --direction=in --time-stamp-type=adapter --time-stamp-precision=nano"

@@ -2,11 +2,9 @@ import datetime
 from apscheduler.schedulers.blocking import BlockingScheduler
 import os
 from optparse import OptionParser
-import multiprocessing
 import yaml
 import re
 import logging
-from collections import defaultdict
 
 
 def success_return(message=None, data=None):
@@ -48,6 +46,15 @@ def parsArgs():
     if options.config is None:
         parser.error("-c config file is required")
 
+    if not os.path.exists('/usr/sbin/tcpdump'):
+        parser.error("/usr/sbin/tcpdump not exists")
+
+    if not os.path.exists('/usr/sbin/lsof'):
+        parser.error('/usr/sbin/lsof not exists')
+
+    if not os.path.exists('/usr/sbin/mergecap'):
+        parser.error('/usr/sbin/mergecap not exists')
+
     if not os.path.exists(options.config):
         parser.error("{} not exists".format(options.config))
     else:
@@ -60,18 +67,19 @@ def parsArgs():
     return True
 
 
-def cap(iface, file_dir, params, cpu):
+def cap(iface, file_dir, params, cpu, date_format):
     """
     抓包
     :param iface:
     :param file_dir:
     :param params:
     :param cpu:
+    :param date_format:
     :return:
     """
     ts = now_ts()
     print('do func time :', ts)
-    file_path = os.path.join(file_dir, "wirecap_{}_%Y%m%d-%H%M%S.pcap".format(iface, ts))
+    file_path = os.path.join(file_dir, "wirecap_{}_{}.pcap".format(iface, date_format))
     logger.debug('start to capture packets of interface {}, write to file {}'.format(iface, file_path))
     os.system('/usr/bin/taskset -c {} /usr/sbin/tcpdump -i {} -w {} {}'.format(cpu, iface, file_path, params))
 
@@ -95,11 +103,11 @@ def validate_timesync():
 
 def checksum_compare(source, target, reserve_days):
     """
-    
+
     :param source: 源目录， 本地目录
     :param target: 目标目录，一般为rsync的目标目录
     :param reserve_days: 保留文件天数，如果是30，表示查找源目录中创建日期比现在大30天的
-    :return: 
+    :return:
     """
     try:
         source_md5 = list()
@@ -135,27 +143,64 @@ def validate_df(dir_path):
     try:
         df_info = os.popen("df {} | grep -v Mount".format(dir_path)).read().split()
         total = df_info[1]
-        used = df_info[2]
+        # used = df_info[2]
         avail = df_info[3]
         capacity = df_info[4]
-        mounted = df_info[-1]
+        # mounted = df_info[-1]
         _size = os.popen("du {} | grep '{}$'".format(dir_path, dir_path)).read().split()[0]
-        return success_return(data={'self_occupy': eval(_size) / eval(total) * 100,
-                                    'total_used': eval(capacity.strip('%')),
-                                    'available': avail})
+        return {'self_occupy': eval(_size) / eval(total) * 100,
+                'total_used': eval(capacity.strip('%')),
+                'available': avail}
     except Exception as e:
         logger.error(str(e))
-        return false_return(message=str(e))
+        return {}
 
 
 def rotate(dir_path, reserve_days, percent, remote_path=None):
     disk_info = validate_df(dir_path)
-    if disk_info['total_used'] >= percent:
+    if disk_info and disk_info['total_used'] >= percent:
         check_result = checksum_compare(dir_path, remote_path, reserve_days)
         if check_result:
             logger.info('Deleting {}'.format(check_result))
             for f in check_result:
                 os.remove(f)
+
+
+def merge_files(dir_path, ifs, date_format, precision='hour'):
+    merge_list = dict()
+    for root, dirs, files in os.walk(dir_path):
+        if re.search(r"{}$".format(dir_path), root):
+            for file in files:
+                if os.path.splitext(file)[-1] != '.pcap':
+                    continue
+                # 此处t的取值格式需要调整，因为目前是精确到秒，不通网卡启动dump时间可能存在差异，因为要格式化为datetime取小时来判断
+                _, i, _t = file.split('_')
+                t = _t.split('.')[0]
+                file_date = datetime.datetime.strptime(t, date_format)
+                ymd = "{}{}{}".format(file_date.year, str(file_date.month).zfill(2), str(file_date.day).zfill(2))
+                if precision == 'hour':
+                    t_key = "{}{}".format(ymd, str(file_date.hour).zfill(2))
+                elif precision == 'minute':
+                    t_key = "{}{}{}".format(ymd, str(file_date.hour).zfill(2), str(file_date.minute).zfill(2))
+                else:
+                    return False
+                if t_key not in merge_list.keys():
+                    merge_list[t_key] = list()
+                # 若网卡在合并列表内，则合并
+                if i in ifs:
+                    if not os.popen('/usr/sbin/lsof {}'.format(os.path.join(root, file))).read():
+                        merge_list[t_key].append(os.path.join(root, file))
+
+    for time, f in merge_list.items():
+        if len(f) > 1:
+            files_str = ' '.join(f)
+            target_files = os.path.join(dir_path, 'merged', 'wirecap_{}.pcap'.format(time))
+            used_dir = os.path.join(dir_path, 'used')
+            merge_result = os.popen('mergecap -a {} -w {}'.format(files_str, target_files))
+            logger.info("merge result: {}".format(merge_result))
+            for used_file in f:
+                os.system('mv {} {}'.format(used_file, used_dir))
+    return None
 
 
 class ScheduleCap:
@@ -180,27 +225,6 @@ class ScheduleCap:
         self.scheduler.start()
 
 
-def merge_files(dir_path, ifs):
-    merge_list = dict()
-    for root, dirs, files in os.walk(dir_path):
-        for file in files:
-            _, i, _t = file.split('_')
-            t = _t.split('.')[0]
-            if t not in merge_list.keys():
-                merge_list[t] = list()
-            # 若网卡在合并列表内，则合并
-            if i in ifs:
-                merge_list[t].append(file)
-    for time, f in merge_list:
-        if len(f) > 1:
-            files_str = ' '.join(f)
-
-            target_file = os.path.join(dir_path, 'merged', 'wirecap_{}.pcap'.format(time))
-            os.system('mergecap -a {} -w {}'.format(files_str, target_file))
-
-    return None
-
-
 if __name__ == "__main__":
     # 读入参数
     cfg = parsArgs()
@@ -216,11 +240,14 @@ if __name__ == "__main__":
     log_path = cfg.get('log_path', "/var/log/tcpdump")
     remote_dir = cfg.get('remote_dir', "/data/sync/")
     rotate_percent = cfg.get('rotate_percent', 90)
+    date_format = cfg.get('date_format', "%Y%m%d-%h%m%s")
+    precision = cfg.get('precision', 'hour')
 
     merged_path = os.path.join(store_path, 'merged')
+    used_path = os.path.join(store_path, 'used')
 
     # 检查目标文件夹，不存在则创建
-    for path in (store_path, merged_path, log_path):
+    for path in (store_path, merged_path, log_path, used_path):
         if not os.path.exists(path):
             os.makedirs(path)
 
@@ -245,22 +272,24 @@ if __name__ == "__main__":
         schedules = job.get('schedules')
         for s in schedules:
             trigger = s.get('trigger')
-            s_minute, s_hour, s_day, s_month, s_week = s.get('start').split()
-            e_minute, e_hour, e_day, e_month, e_week = s.get('end').split()
+            s_second, s_minute, s_hour, s_day, s_month, s_week = s.get('start').split()
+            e_second, e_minute, e_hour, e_day, e_month, e_week = s.get('end').split()
             start_kwargs = {
                 'func': cap,
                 'trigger': trigger,
+                'second': int(s_second) if not re.search(r"\*", s_second) else None,
                 'minute': int(s_minute) if not re.search(r"\*", s_minute) else None,
                 'hour': int(s_hour) if not re.search(r"\*", s_hour) else None,
                 'day': int(s_day) if not re.search(r"\*", s_day) else None,
                 'month': int(s_month) if not re.search(r"\*", s_month) else None,
                 'day_of_week': s_week if s_week else None,
-                'args': [interface, store_path, params, cpu]
+                'args': [interface, store_path, params, cpu, date_format]
             }
 
             end_kwargs = {
                 'func': kill_proc,
                 'trigger': trigger,
+                'second': int(e_second) if not re.search(r"\*", e_second) else None,
                 'minute': int(e_minute) if not re.search(r"\*", e_minute) else None,
                 'hour': int(e_hour) if not re.search(r"\*", e_hour) else None,
                 'day': int(e_day) if not re.search(r"\*", e_day) else None,
@@ -273,14 +302,17 @@ if __name__ == "__main__":
 
     # 监控任务
     for monitor in cfg.get('monitor'):
+        print(monitor)
         _kwargs = dict()
-        trigger = monitor.get('trigger')
-        minute, hour, day, month, week = monitor.get('start').strip().split()
-        _kwargs = {
-            'trigger': trigger,
-            'minute': int(minute) if not re.search(r"\*", minute) else None,
-            'hour': int(hour) if not re.search(r"\*", hour) else None,
-        }
+        trigger = monitor['schedules']['trigger']
+        t_dict = dict()
+        t_dict['minutes'], t_dict['hours'], t_dict['days'], t_dict['months'], t_dict['weeks'] = monitor['schedules'][
+            'wait'].strip().split()
+
+        _kwargs['trigger'] = trigger
+        for t in ('minutes', 'hours', 'days', 'months', 'weeks'):
+            if t_dict[t] != '*':
+                _kwargs[t] = eval(t_dict[t])
 
         if monitor.get('item') == "time":
             pass
@@ -291,9 +323,10 @@ if __name__ == "__main__":
 
         if monitor.get('item') == "merge":
             _kwargs['func'] = merge_files
-            _kwargs['args'] = [store_path, monitor_interface]
+            _kwargs['args'] = [store_path, monitor_interface, date_format, precision]
 
         if _kwargs:
+            print(_kwargs)
             sc.add(**_kwargs)
 
     print(sc.scheduler.get_jobs())
