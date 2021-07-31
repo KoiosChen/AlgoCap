@@ -110,30 +110,17 @@ def checksum_compare(source, target, reserve_days):
     :return:
     """
     try:
-        source_md5 = list()
-        target_md5 = list()
-        sync_files = list()
+        delete_list = list()
+        # 递归查找源目录下所有文件
         s_files = os.popen("find {} -type f -ctime +{}".format(source, reserve_days)).read().split('\n')
-        t_files = os.popen("find {} -type f".format(target)).read().split('\n')
         for sf in s_files:
             if sf:
-                s_md5 = os.popen('md5sum {}'.format(sf)).read().split()[0]
-                source_md5.append({'md5': s_md5, 'filename': sf})
+                sync_file = re.findall("{}(.*)".format(sf), sf)[0]
+                check_ = os.popen("rsync -rtv {} {} | wc -l".format(sf, target + sync_file)).read()
+                if eval(check_) <= 3:
+                    delete_list.append(sf)
 
-        if remote_dir is not None:
-            for tf in t_files:
-                if tf:
-                    t_md5 = os.popen('md5sum {}'.format(tf)).read().split()[0]
-                    target_md5.append(t_md5)
-
-            for sm in source_md5:
-                if sm['md5'] in target_md5:
-                    sync_files.append(sm['filename'])
-        else:
-            for sm in source_md5:
-                sync_files.append(sm['filename'])
-
-        return sync_files
+        return delete_list
     except Exception as e:
         logger.error(str(e))
         return False
@@ -158,12 +145,14 @@ def validate_df(dir_path):
 
 def rotate(dir_path, reserve_days, percent, remote_path=None):
     disk_info = validate_df(dir_path)
+    logger.info(disk_info)
     if disk_info and disk_info['total_used'] >= percent:
         check_result = checksum_compare(dir_path, remote_path, reserve_days)
         if check_result:
             logger.info('Deleting {}'.format(check_result))
             for f in check_result:
-                os.remove(f)
+                pass
+                # os.remove(f)
 
 
 def packets_validation(source_list, target_file):
