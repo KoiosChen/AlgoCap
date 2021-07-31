@@ -113,13 +113,14 @@ def checksum_compare(source, target, reserve_days):
         delete_list = list()
         # 递归查找源目录下所有文件
         s_files = os.popen("find {} -type f -ctime +{}".format(source, reserve_days)).read().split('\n')
+        logger.debug(s_files)
         for sf in s_files:
             if sf:
                 sync_file = re.findall("{}(.*)".format(sf), sf)[0]
-                check_ = os.popen("rsync -rtv {} {} | wc -l".format(sf, target + sync_file)).read()
+                command = "rsync -rntv {} {} | grep -v ^$ | wc -l".format(sf, target + sync_file)
+                check_ = os.popen(command).read()
                 if eval(check_) <= 3:
                     delete_list.append(sf)
-
         return delete_list
     except Exception as e:
         logger.error(str(e))
@@ -147,11 +148,11 @@ def rotate(dir_path, reserve_days, percent, remote_path=None):
     disk_info = validate_df(dir_path)
     logger.info(disk_info)
     if disk_info and disk_info['total_used'] >= percent:
+        logger.info('preparing to confirm file sync sucess...')
         check_result = checksum_compare(dir_path, remote_path, reserve_days)
         if check_result:
-            logger.info('Deleting {}'.format(check_result))
             for f in check_result:
-                logger.debug(f)
+                logger.debug("Deleting {}".format(f))
                 pass
                 # os.remove(f)
 
@@ -249,7 +250,7 @@ if __name__ == "__main__":
     global_cpu = cfg.get('cpu', 0)
     mergecap = cfg.get('mergecap', 1)
     log_path = cfg.get('log_path', "/var/log/tcpdump")
-    remote_dir = cfg.get('remote_dir', "/data/sync/")
+    remote_dir = cfg.get('remote_dir')
     rotate_percent = cfg.get('rotate_percent', 90)
     date_format = cfg.get('date_format', "%Y%m%d-%h%m%s")
     precision = cfg.get('precision', 'hour')

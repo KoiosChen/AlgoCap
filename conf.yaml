@@ -3,7 +3,7 @@ reserve: 60
 cpu: 0
 mergecap: 1
 log_path: "./tcpdump/"
-remote_dir: "/data/sync"
+remote_dir: "logging@ldc01:/home/logging/wirecap/SHAYDYQ/GJF"
 rotate_percent: 90
 date_format: "%Y%m%d-%H%M%S"
 precision: "minute"
