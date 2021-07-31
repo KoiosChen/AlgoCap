@@ -151,6 +151,7 @@ def rotate(dir_path, reserve_days, percent, remote_path=None):
         if check_result:
             logger.info('Deleting {}'.format(check_result))
             for f in check_result:
+                logger.debug(f)
                 pass
                 # os.remove(f)
 
