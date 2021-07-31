@@ -256,7 +256,7 @@ if __name__ == "__main__":
     # global config
     store_path = cfg.get('store_path', "/data/tcpdump")
     reserve = cfg.get('reserve', 60)
-    cpu = cfg.get('cpu', 0)
+    global_cpu = cfg.get('cpu', 0)
     mergecap = cfg.get('mergecap', 1)
     log_path = cfg.get('log_path', "/var/log/tcpdump")
     remote_dir = cfg.get('remote_dir', "/data/sync/")
@@ -291,6 +291,7 @@ if __name__ == "__main__":
         monitor_interface.append(interface)
         params = job.get('params')
         schedules = job.get('schedules')
+        cpu = job.get('cpu', global_cpu)
         for s in schedules:
             trigger = s.get('trigger')
             s_second, s_minute, s_hour, s_day, s_month, s_week = s.get('start').split()
