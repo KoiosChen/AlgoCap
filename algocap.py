@@ -79,8 +79,6 @@ def cap(iface, file_dir, params, cpu, date_format):
     :param date_format:
     :return:
     """
-    ts = now_ts()
-    print('do func time :', ts)
     file_path = os.path.join(file_dir, "wirecap_{}_{}.pcap".format(iface, date_format))
     logger.debug('start to capture packets of interface {}, write to file {}'.format(iface, file_path))
     os.system('/usr/bin/taskset -c {} /usr/sbin/tcpdump -i {} -w {} {}'.format(cpu, iface, file_path, params))
@@ -99,11 +97,12 @@ def kill_proc(interface, file_dir):
 
     time.sleep(10)
     if os.popen('ps aux | grep tcpdump | grep ' + interface + ' | grep ' + file_dir + ' | grep -v grep'):
+        logger.info('tcpdump process is not killed, kill -9 now')
         os.system(
             'ps aux | grep tcpdump | grep ' +
             interface + ' | grep ' + file_dir + ' | grep -v grep | awk \'{print $2}\' | xargs kill -9')
     else:
-        logger.info(interface + " tcpdump process killed")
+        logger.info(interface + " tcpdump process is killed")
 
 
 def validate_timesync():
@@ -170,8 +169,10 @@ def packets_validation(source_list, target_file):
     try:
         sum_source_packets = 0
         for sf in source_list:
-            sum_source_packets += eval(
-                os.popen('/usr/sbin/capinfos -c -M {} | grep Number'.format(sf)).read().split()[-1])
+            number = os.popen('/usr/sbin/capinfos -c -M {} | grep Number'.format(sf)).read()
+            if not number:
+                raise Exception('capinfo -c -M {} fail. Pcap file is incomplete.'.format(sf))
+            sum_source_packets += eval(number.split()[-1])
 
         target_packets = eval(
             os.popen('/usr/sbin/capinfos -c -M {} | grep Number'.format(target_file)).read().split()[-1])
@@ -217,14 +218,12 @@ def merge_files(dir_path, ifs, date_format, precision='hour'):
             target_file = os.path.join(dir_path, 'merged', 'wirecap_{}.pcap'.format(time))
             used_dir = os.path.join(dir_path, 'used')
             merge_result = os.popen('mergecap -a {} -w {}'.format(files_str, target_file))
-            logger.info("merge result: {}".format(merge_result))
+            logger.info("merge result: {}".format(merge_result.read()))
             if packets_validation(f, target_file):
                 for used_file in f:
                     os.system('mv {} {}'.format(used_file, used_dir))
             else:
-                logger.error('Source packets is not equal to merged pcap file')
-                logger.error('Source file: ' + str(f))
-                logger.error('Target file: ' + target_file)
+                logger.error('Source packets - {} is not equal to merged pcap file - {}'.format(str(f), target_file))
     return None
 
 
@@ -355,6 +354,8 @@ if __name__ == "__main__":
             print(_kwargs)
             sc.add(**_kwargs)
 
-    print(sc.scheduler.get_jobs())
+    for job in sc.scheduler.get_jobs():
+        logger.info(
+            "name: %s, trigger: %s, handler: %s" % (job.name, job.trigger, job.func))
 
     sc.start_cap()
