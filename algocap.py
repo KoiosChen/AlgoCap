@@ -5,6 +5,8 @@ from optparse import OptionParser
 import yaml
 import re
 import logging
+import traceback
+import time
 
 
 def success_return(message=None, data=None):
@@ -90,11 +92,18 @@ def kill_proc(interface, file_dir):
     :param interface:
     :return:
     """
-    ts = now_ts()
-    print('do func2 time：', ts)
+    logger.info("kill tcpdump process " + interface)
     os.system(
         'ps aux | grep tcpdump | grep ' +
-        interface + ' | grep ' + file_dir + ' | grep -v grep | awk \'{print $2}\' | xargs kill -9')
+        interface + ' | grep ' + file_dir + ' | grep -v grep | awk \'{print $2}\' | xargs kill -s TERM')
+
+    time.sleep(10)
+    if os.popen('ps aux | grep tcpdump | grep ' + interface + ' | grep ' + file_dir + ' | grep -v grep'):
+        os.system(
+            'ps aux | grep tcpdump | grep ' +
+            interface + ' | grep ' + file_dir + ' | grep -v grep | awk \'{print $2}\' | xargs kill -9')
+    else:
+        logger.info(interface + " tcpdump process killed")
 
 
 def validate_timesync():
@@ -124,6 +133,7 @@ def checksum_compare(source, target, reserve_days):
         return delete_list
     except Exception as e:
         logger.error(str(e))
+        traceback.print_exc()
         return False
 
 
@@ -131,16 +141,15 @@ def validate_df(dir_path):
     try:
         df_info = os.popen("df {} | grep -v Mount".format(dir_path)).read().split()
         total = df_info[1]
-        # used = df_info[2]
         avail = df_info[3]
         capacity = df_info[4]
-        # mounted = df_info[-1]
         _size = os.popen("du {} | grep '{}$'".format(dir_path, dir_path)).read().split()[0]
         return {'self_occupy': eval(_size) / eval(total) * 100,
                 'total_used': eval(capacity.strip('%')),
                 'available': avail}
     except Exception as e:
         logger.error(str(e))
+        traceback.print_exc()
         return {}
 
 
@@ -172,6 +181,8 @@ def packets_validation(source_list, target_file):
         else:
             return False
     except Exception as e:
+        logger.error(str(e))
+        traceback.print_exc()
         return False
 
 
@@ -212,6 +223,8 @@ def merge_files(dir_path, ifs, date_format, precision='hour'):
                     os.system('mv {} {}'.format(used_file, used_dir))
             else:
                 logger.error('Source packets is not equal to merged pcap file')
+                logger.error('Source file: ' + str(f))
+                logger.error('Target file: ' + target_file)
     return None
 
 
@@ -247,13 +260,13 @@ if __name__ == "__main__":
     # global config
     store_path = cfg.get('store_path', "/data/tcpdump")
     reserve = cfg.get('reserve', 60)
-    global_cpu = cfg.get('cpu', 0)
+    global_cpu = cfg.get('cpu', 6)
     mergecap = cfg.get('mergecap', 1)
     log_path = cfg.get('log_path', "/var/log/tcpdump")
     remote_dir = cfg.get('remote_dir')
     rotate_percent = cfg.get('rotate_percent', 90)
-    date_format = cfg.get('date_format', "%Y%m%d-%h%m%s")
-    precision = cfg.get('precision', 'hour')
+    date_format = cfg.get('date_format', "%Y%m%d-%h%m")
+    precision = cfg.get('precision', 'minute')
 
     merged_path = os.path.join(store_path, 'merged')
     used_path = os.path.join(store_path, 'used')
